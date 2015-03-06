@@ -2,10 +2,12 @@ require 'buildpack/packager/version'
 require 'open3'
 require 'fileutils'
 require 'tmpdir'
+require 'kwalify'
 
 module Buildpack
   module Packager
     class CheckSumError < StandardError; end
+    class ManifestValidationError < StandardError; end
 
     def self.package(buildpack)
       package = Package.new(buildpack)
@@ -15,6 +17,7 @@ module Buildpack
 
     class Package < Struct.new(:buildpack)
       def execute!
+        validate_manifest
         check_for_zip
 
         Dir.mktmpdir do |temp_dir|
@@ -32,6 +35,10 @@ module Buildpack
       private
       def zip_file_path
         File.join(buildpack[:root_dir], zip_file_name)
+      end
+
+      def manifest_file_path
+        File.join(buildpack[:root_dir], 'manifest.yml')
       end
 
       def zip_file_name
@@ -100,9 +107,58 @@ module Buildpack
         raise RuntimeError, "Zip is not installed\nTry: apt-get install zip\nAnd then rerun" if status.to_s.include?("exit 1")
       end
 
+      def validate_manifest
+        validate_manifest_against_schema
+
+        buildpack[:dependencies].each do |dependency|
+          uri = dependency['uri']
+          if status_code(uri) != 200
+            raise ManifestValidationError, "Error while validating manifest: invalid uri: #{uri}"
+          end
+        end
+      end
+
       def download_file(url, file)
         `curl #{url} -o #{file} -L --fail -f`
       end
+
+      def status_code url
+        uri = URI.parse(url)
+        http = Net::HTTP.new(uri.host, uri.port)
+        if uri.scheme == 'https'
+          http.use_ssl = true
+          http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+        end
+
+        begin
+          status_code = http.head(uri.request_uri).code.to_i
+          return status_code unless 404 #if doesn't support head requests
+
+          Net::HTTP.start(uri.host,
+                          uri.port,
+                          :use_ssl => uri.scheme == 'https'
+                         ) do |http|
+                           request = Net::HTTP::Get.new uri
+
+                           http.request request do |response|
+                             return response.code.to_i
+                           end
+                         end
+        rescue
+          false
+        end
+      end
+
+      def validate_manifest_against_schema
+        schema = Kwalify::Yaml.load_file("#{File.dirname(__FILE__)}/packager/schema/manifest_schema.yml")
+        validator = Kwalify::Validator.new(schema)
+        parser = Kwalify::Yaml::Parser.new(validator)
+        parser.parse_file(manifest_file_path)
+        unless parser.errors.empty?
+          raise ManifestValidationError, "Manifest does not follow proper format:\n#{parser.errors.map{|e| "line=#{e.linenum}, path=#{e.path}, mesg=#{e.message}" }.join("\n")}"
+        end
+      end
+
     end
   end
 end

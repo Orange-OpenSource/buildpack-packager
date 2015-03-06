@@ -1,0 +1,38 @@
+---
+language: nodejs
+
+exclude_files:
+  - .git/
+  - .gitignore
+  - .gitmodules
+  - cf_spec/
+  - log/
+  - test/
+  - bin/package
+  - buildpack-packager/
+  - nodejs_buildpack-*v*.zip
+
+url_to_dependency_map:
+  - match: node\/v(\d+\.\d+\.\d+)
+    name: node
+    version: $1
+
+dependencies:
+  - name: node
+    uri: https://pivotal-buildpacks.s3.amazonaws.com/node/binaries/node-v0.8.6-linux-x64.tar.gz
+    md5: e8d92d46201ba6e61ee748fc85ad2afa
+    cf_stacks:
+      - lucid64
+      - cflinuxfs2
+  - name: node
+    uri: https://pivotal-buildpacks.s3.amazonaws.com/node/binaries/node-v0.8.7-linux-x64.tar.gz
+    md5: 7a3bb324b1ad1864162a5ff6e9e5e012
+    cf_stacks:
+      - lucid64
+      - cflinuxfs2
+  - name: node
+    uri: https://pivotal-buildpacks.s3.amazonaws.com/node/binaries/node-v0.8.8-linux-x64.tar.gz
+    md5: 8a9272ee8d6dd25a09e641c85dd638e7
+    cf_stacks:
+      - lucid64
+      - cflinuxfs2
