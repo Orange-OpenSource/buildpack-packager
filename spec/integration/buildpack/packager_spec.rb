@@ -6,7 +6,13 @@ module Buildpack
     let(:tmp_dir) { Dir.mktmpdir }
     let(:buildpack_dir) { File.join(tmp_dir, 'sample-buildpack-root-dir') }
     let(:cache_dir) { File.join(tmp_dir, 'cache-dir') }
-    let(:file_location) { '/etc/hosts' }
+    let(:file_location) do
+      location = File.join(tmp_dir, 'sample_host')
+      File.write(location, 'contents!')
+      location
+    end
+    let(:translated_file_location) { 'file___' + file_location.gsub(/[:\/]/, '_') }
+
     let(:md5) { Digest::MD5.file(file_location).hexdigest }
 
     let(:options) {
@@ -48,7 +54,7 @@ module Buildpack
     }
 
     let(:files) { files_to_include + files_to_exclude }
-    let(:cached_file) { File.join(cache_dir, 'file____etc_hosts') }
+    let(:cached_file) { File.join(cache_dir, translated_file_location) }
 
     def create_manifest(manifest)
       File.open(manifest_path, 'w') { |f| f.write manifest.to_yaml }
@@ -105,15 +111,16 @@ module Buildpack
         end
       end
 
-      context 'an cached buildpack' do
+      context 'a cached buildpack' do
         let(:buildpack_mode) { :cached }
 
         specify do
           Packager.package(options)
 
+
           zip_file_path = File.join(buildpack_dir, 'sample_buildpack-cached-v1.2.3.zip')
           zip_contents = get_zip_contents(zip_file_path)
-          dependencies = ["dependencies/file____etc_hosts"]
+          dependencies = ["dependencies/#{translated_file_location}"]
 
           expect(zip_contents).to match_array(files_to_include + dependencies)
         end
@@ -157,9 +164,8 @@ module Buildpack
         end
       end
 
-      context 'an cached buildpack' do
+      context 'a cached buildpack' do
         let(:buildpack_mode) { :cached }
-        let(:cached_file) { File.join(cache_dir, "file____etc_hosts") }
 
         context 'by default' do
           specify do
@@ -201,6 +207,46 @@ module Buildpack
               expect_any_instance_of(Packager::Package).not_to receive(:download_file)
               Packager.package(options.merge(force_download: false))
             end
+          end
+        end
+
+        context 'with a deprecated manifest parameter' do
+          let(:deprecated_file_location) do
+            location = File.join(tmp_dir, 'sample_deprecated_host')
+            File.write(location, 'deprecated contents!')
+            location
+          end
+          let(:deprecated_manifest_path) { File.join(buildpack_dir, '.deprecated.manifest.yml') }
+          let(:deprecated_manifest) {
+            {
+              exclude_files: files_to_exclude,
+              language: 'sample',
+              dependencies: [{
+                               'version' => '0.9',
+                               'name' => 'etc_host',
+                               'md5' => deprecated_md5,
+                               'uri' => "file://#{deprecated_file_location}"
+                             }]
+            }
+          }
+          let(:translated_deprecated_file_location) { 'file___' + deprecated_file_location.gsub(/[:\/]/, '_') }
+          let(:deprecated_md5) { Digest::MD5.file(deprecated_file_location).hexdigest }
+
+          before do
+            File.open(deprecated_manifest_path, 'w') { |f| f.write deprecated_manifest.to_yaml }
+          end
+
+          it 'zip includes deprecated and current manifest dependencies' do
+            Packager.package(options.merge({
+                                             include_deprecated_manifest: true,
+                                             deprecated_manifest_path: deprecated_manifest_path
+                                           }))
+
+            zip_file_path = File.join(buildpack_dir, 'sample_buildpack-cached-v1.2.3.zip')
+            zip_contents = get_zip_contents(zip_file_path)
+
+            expect(zip_contents).to include("dependencies/#{translated_file_location}")
+            expect(zip_contents).to include("dependencies/#{translated_deprecated_file_location}")
           end
         end
       end

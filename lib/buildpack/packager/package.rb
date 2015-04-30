@@ -32,6 +32,10 @@ module Buildpack
         @manifest ||= YAML.load_file(options[:manifest_path]).with_indifferent_access
       end
 
+      def deprecated_manifest
+        @deprecated_manifest ||= YAML.load_file(options[:deprecated_manifest_path]).with_indifferent_access
+      end
+
       def zip_file_path
         Shellwords.escape(File.join(options[:root_dir], zip_file_name))
       end
@@ -66,21 +70,30 @@ module Buildpack
         dependency_dir = File.join(temp_dir, "dependencies")
         FileUtils.mkdir_p(dependency_dir)
 
-        manifest[:dependencies].each do |dependency|
+        cache_dependencies(manifest[:dependencies], cache_directory, dependency_dir)
+        if options[:include_deprecated_manifest]
+          cache_dependencies(deprecated_manifest[:dependencies], cache_directory, dependency_dir)
+        end
+      end
+
+      def cache_dependencies(dependencies, cache_directory, dependency_dir)
+        dependencies.each do |dependency|
           translated_filename = uri_cache_path dependency['uri']
           cached_file = File.expand_path(File.join(cache_directory, translated_filename))
 
           from_cache = true
           if options[:force_download] || !File.exist?(cached_file)
             download_file(dependency['uri'], cached_file)
+            # require 'pry'
+            # binding.pry
             from_cache = false
           end
 
           ensure_correct_dependency_checksum({
-            cached_file: cached_file,
-            dependency: dependency,
-            from_cache: from_cache
-          })
+                                               cached_file: cached_file,
+                                               dependency: dependency,
+                                               from_cache: from_cache
+                                             })
 
           FileUtils.cp(cached_file, dependency_dir)
         end
