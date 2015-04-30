@@ -209,45 +209,49 @@ module Buildpack
             end
           end
         end
+      end
+    end
 
-        context 'with a deprecated manifest parameter' do
-          let(:deprecated_file_location) do
-            location = File.join(tmp_dir, 'sample_deprecated_host')
-            File.write(location, 'deprecated contents!')
-            location
-          end
-          let(:deprecated_manifest_path) { File.join(buildpack_dir, '.deprecated.manifest.yml') }
-          let(:deprecated_manifest) {
-            {
-              exclude_files: files_to_exclude,
-              language: 'sample',
-              dependencies: [{
-                               'version' => '0.9',
-                               'name' => 'etc_host',
-                               'md5' => deprecated_md5,
-                               'uri' => "file://#{deprecated_file_location}"
-                             }]
-            }
-          }
-          let(:translated_deprecated_file_location) { 'file___' + deprecated_file_location.gsub(/[:\/]/, '_') }
-          let(:deprecated_md5) { Digest::MD5.file(deprecated_file_location).hexdigest }
+    describe 'with a deprecated manifest parameter' do
+      let(:deprecated_file_location) do
+        location = File.join(tmp_dir, 'sample_deprecated_host')
+        File.write(location, 'deprecated contents!')
+        location
+      end
+      let(:deprecated_manifest_path) { File.join(buildpack_dir, '.deprecated.manifest.yml') }
+      let(:deprecated_manifest) {
+        {
+          exclude_files: files_to_exclude,
+          language: 'sample',
+          dependencies: [{
+                           'version' => '0.9',
+                           'name' => 'etc_host',
+                           'md5' => deprecated_md5,
+                           'uri' => "file://#{deprecated_file_location}"
+                         }]
+        }
+      }
+      let(:translated_deprecated_file_location) { 'file___' + deprecated_file_location.gsub(/[:\/]/, '_') }
+      let(:deprecated_md5) { Digest::MD5.file(deprecated_file_location).hexdigest }
 
-          before do
-            File.open(deprecated_manifest_path, 'w') { |f| f.write deprecated_manifest.to_yaml }
-          end
+      before do
+        File.open(deprecated_manifest_path, 'w') { |f| f.write deprecated_manifest.to_yaml }
+      end
 
-          it 'zip includes deprecated and current manifest dependencies' do
-            Packager.package(options.merge({
-                                             include_deprecated_manifest: true,
-                                             deprecated_manifest_path: deprecated_manifest_path
-                                           }))
+      context 'a cached buildpack' do
+        let(:buildpack_mode) { :cached }
 
-            zip_file_path = File.join(buildpack_dir, 'sample_buildpack-cached-v1.2.3.zip')
-            zip_contents = get_zip_contents(zip_file_path)
+        it 'zip includes deprecated and current manifest dependencies' do
+          Packager.package(options.merge({
+                                           include_deprecated_manifest: true,
+                                           deprecated_manifest_path: deprecated_manifest_path
+                                         }))
 
-            expect(zip_contents).to include("dependencies/#{translated_file_location}")
-            expect(zip_contents).to include("dependencies/#{translated_deprecated_file_location}")
-          end
+          zip_file_path = File.join(buildpack_dir, 'sample_buildpack-cached-v1.2.3.zip')
+          zip_contents = get_zip_contents(zip_file_path)
+
+          expect(zip_contents).to include("dependencies/#{translated_file_location}")
+          expect(zip_contents).to include("dependencies/#{translated_deprecated_file_location}")
         end
       end
     end
