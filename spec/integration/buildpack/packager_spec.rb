@@ -29,6 +29,11 @@ module Buildpack
       {
         exclude_files: files_to_exclude,
         language: 'sample',
+        url_to_dependency_map: [{
+          match: "ruby-(\d+\.\d+\.\d+)",
+          name: "ruby",
+          version: "$1",
+        }],
         dependencies: [{
           'version' => '1.0',
           'name' => 'etc_host',
@@ -219,23 +224,84 @@ module Buildpack
         location
       end
       let(:deprecated_manifest_path) { File.join(buildpack_dir, '.deprecated.manifest.yml') }
+      let(:deprecated_manifest_language) { 'sample' }
       let(:deprecated_manifest) {
         {
-          exclude_files: files_to_exclude,
-          language: 'sample',
+          exclude_files: files_to_exclude + ['.DS_Store'],
+          language: deprecated_manifest_language,
+          url_to_dependency_map: [{
+            match: "jruby-(\d+\.\d+\.\d+)",
+            name: "jruby",
+            version: "$1",
+          }],
           dependencies: [{
-                           'version' => '0.9',
-                           'name' => 'etc_host',
-                           'md5' => deprecated_md5,
-                           'uri' => "file://#{deprecated_file_location}"
-                         }]
+            'version' => '0.9',
+            'name' => 'etc_host',
+            'md5' => deprecated_md5,
+            'uri' => "file://#{deprecated_file_location}"
+          }]
         }
       }
       let(:translated_deprecated_file_location) { 'file___' + deprecated_file_location.gsub(/[:\/]/, '_') }
       let(:deprecated_md5) { Digest::MD5.file(deprecated_file_location).hexdigest }
+      let(:zip_file_path) { File.join(buildpack_dir, 'sample_buildpack-cached-v1.2.3.zip') }
 
       before do
         File.open(deprecated_manifest_path, 'w') { |f| f.write deprecated_manifest.to_yaml }
+      end
+
+      it 'generates a new manifest with contents of both the default and deprecated manifests' do
+        Packager.package(options.merge({
+                                         include_deprecated_manifest: true,
+                                         deprecated_manifest_path: deprecated_manifest_path
+                                       }))
+
+        manifest_location = File.join(Dir.mktmpdir, 'manifest.yml')
+
+        Zip::File.open(zip_file_path) do |zip_file|
+          generated_manifest = zip_file.find { |file| file.name == 'manifest.yml' }
+          generated_manifest.extract(manifest_location)
+        end
+
+        manifest_contents = YAML.load_file(File.read(manifest_location))
+
+        expect(manifest_contents[:dependencies].count).to eq(2)
+
+        expect(manifest[:dependencies].all? do |dependency|
+          manifest_contents[:dependencies].include?(dependency)
+        end).to be_true
+
+        expect(deprecated_manifest[:dependencies].all? do |dependency|
+          manifest_contents[:dependencies].include?(dependency)
+        end).to be_true
+
+        expect(manifest[:url_to_dependency_map].all? do |dependency|
+          manifest_contents[:url_to_dependency_map].include?(dependency)
+        end).to be_true
+
+        expect(deprecated_manifest[:url_to_dependency_map].all? do |dependency|
+          manifest_contents[:url_to_dependency_map].include?(dependency)
+        end).to be_true
+
+        expect(manifest[:exclude_files].all? do |dependency|
+          manifest_contents[:exclude_files].include?(dependency)
+        end).to be_true
+
+        expect(deprecated_manifest[:exclude_files].all? do |dependency|
+          manifest_contents[:exclude_files].include?(dependency)
+        end).to be_true
+      end
+
+      context 'with manifests with mismatched languages' do
+        let(:deprecated_manifest_language) { 'wrong_language' }
+        it "raises an error" do
+          expect do
+            Packager.package(options.merge({
+              include_deprecated_manifest: true,
+              deprecated_manifest_path: deprecated_manifest_path
+            }))
+          end.to raise_error("Language specified in manifest.yml and .deprecated.manifest.yml do not match.")
+        end
       end
 
       context 'a cached buildpack' do
@@ -243,9 +309,9 @@ module Buildpack
 
         it 'zip includes deprecated and current manifest dependencies' do
           Packager.package(options.merge({
-                                           include_deprecated_manifest: true,
-                                           deprecated_manifest_path: deprecated_manifest_path
-                                         }))
+            include_deprecated_manifest: true,
+            deprecated_manifest_path: deprecated_manifest_path
+          }))
 
           zip_file_path = File.join(buildpack_dir, 'sample_buildpack-cached-v1.2.3.zip')
           zip_contents = get_zip_contents(zip_file_path)
